@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>To-Do List</title>
+  <link rel="stylesheet" href="style.css" />
+  <script>
+  // Dentro de Docker, las llamadas van a /api/... y nginx las reenvía
+  // al backend (ver nginx.conf). Para probar el frontend SIN Docker,
+  // descomentar la línea de abajo:
+  // window.API_BASE = "http://localhost:8080";
+  window.API_BASE = "";
+  </script>
+</head>
+<body>
+  <div id="app">
+
+    <!-- Pantalla de login -->
+    <section id="login-screen" class="screen">
+      <div class="card">
+        <h1>To-Do List</h1>
+        <p class="muted">Ingresá tu nombre de usuario para continuar.</p>
+        <form id="login-form">
+          <input type="text" id="username-input" placeholder="Nombre de usuario" required />
+          <button type="submit">Entrar</button>
+        </form>
+        <p id="login-error" class="error hidden"></p>
+      </div>
+    </section>
+
+    <!-- Pantalla principal -->
+    <section id="main-screen" class="screen hidden">
+      <header class="topbar">
+        <h1>To-Do List</h1>
+        <div>
+          <span id="current-username"></span>
+          <button id="logout-btn" class="link-btn">Salir</button>
+        </div>
+      </header>
+
+      <div class="layout">
+        <aside class="sidebar">
+          <div class="sidebar-header">
+            <h2>Mis listas</h2>
+          </div>
+          <ul id="lists-container"></ul>
+          <form id="new-list-form">
+            <input type="text" id="new-list-input" placeholder="Nueva lista..." required />
+            <button type="submit">+</button>
+          </form>
+          <p id="list-error" class="error hidden"></p>
+        </aside>
+
+        <main class="content">
+          <div id="no-list-selected" class="empty-state">
+            <p>Elegí una lista o creá una nueva para empezar.</p>
+          </div>
+
+          <div id="task-view" class="hidden">
+            <div class="content-header">
+              <h2 id="current-list-name"></h2>
+              <button id="delete-list-btn" class="danger-btn">Eliminar lista</button>
+            </div>
+
+            <form id="new-task-form" class="new-task-form">
+              <input type="text" id="new-task-title" placeholder="¿Qué hay que hacer?" maxlength="100" required />
+              <input type="date" id="new-task-due" />
+              <button type="submit">Agregar</button>
+            </form>
+            <p id="task-error" class="error hidden"></p>
+
+            <ul id="tasks-container"></ul>
+          </div>
+        </main>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
