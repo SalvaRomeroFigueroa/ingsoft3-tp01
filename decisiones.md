@@ -117,3 +117,34 @@ Como seguí el video del tp, mientras leía el documento del mismo, no tuve ning
 
 Para este tp no utilicé la ayuda de la IA en ningún paso
 
+## TP4 — CI: Pipelines as Code
+
+### 1. Estructura del pipeline
+
+Dos jobs, `build-backend` y `build-frontend`, uno por cada Dockerfile del
+TP2. Corren en paralelo porque son independientes entre sí — ninguno
+necesita el resultado del otro, así que serializarlos solo sumaría tiempo
+sin ningún beneficio.
+
+### 2. Qué cachea mi pipeline
+
+Las capas de cada imagen Docker, vía `type=gha` con `mode=max`. Cada job
+usa un `scope` distinto (`backend` / `frontend`) para no pisarse el cache
+entre sí. Si el cache desaparece, el pipeline sigue funcionando igual, solo
+más lento: es una optimización, no una dependencia. Si fallara sin él,
+sería un bug del Dockerfile, no del cache.
+
+### 3. Por qué construye con mi Dockerfile
+
+El workflow no tiene ninguna línea de Go — solo invoca `docker build` sobre
+los Dockerfiles. Así evito tener dos definiciones de build (la del
+Dockerfile y la del pipeline) que con el tiempo terminan divergiendo: lo
+que se verifica acá es exactamente lo que después se despliega.
+
+### 4. Problemas
+
+Seguí el video explicativo, no tuve problemas mayores mas allá de una pequeña confusión en la parte de hacer 2 PR para probar freno por out of date
+
+### 5. - Uso de IA
+
+Para este tp no utilicé la ayuda de la IA en ningún paso
