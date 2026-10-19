@@ -117,3 +117,16 @@ Como seguí el video del tp, mientras leía el documento del mismo, no tuve ning
 
 Para este tp no utilicé la ayuda de la IA en ningún paso
 
+## Corrección TP2
+
+El profesor marcó dos faltantes en la entrega original: (1) el Dockerfile del
+frontend no era multi-stage, (2) faltaba `docker-compose.registry.yml` y las
+imágenes nunca se publicaron de verdad en el registry.
+
+Corregido así: el frontend pasó a tener dos etapas — la primera copia los
+estáticos y corre `nginx -t` para validar la sintaxis de `nginx.conf` antes
+de hornear la imagen final (comprobé que la etapa frena de verdad: rompí el
+`nginx.conf` a propósito y el build falló ahí). Las imágenes se publicaron en
+ghcr.io como `ghcr.io/salvaromerofigueroa/todo-backend:v0.1.0` y
+`todo-frontend:v0.1.0`, públicas, y probadas bajándolas sin estar logueado
+con `docker-compose.registry.yml`.
