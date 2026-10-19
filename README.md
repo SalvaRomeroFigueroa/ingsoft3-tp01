@@ -1,3 +1,5 @@
+[![CI](https://github.com/SalvaRomeroFigueroa/ingsoft3-tp01/actions/workflows/ci.yml/badge.svg)](https://github.com/SalvaRomeroFigueroa/ingsoft3-tp01/actions/workflows/ci.yml)
+
 # To-Do List — backend Go + frontend vanilla JS
 
 App de listas de tareas por usuario.
