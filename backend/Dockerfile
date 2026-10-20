@@ -8,7 +8,13 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/server .
 
-# ---- Etapa 2: runtime (imagen mínima, sin el compilador) ----
+# ---- Etapa 2: tests (reutiliza build: mismo código y mismas dependencias) ----
+FROM build AS test
+ENV CGO_ENABLED=0
+RUN mkdir -p /out
+ENTRYPOINT ["go", "test", "./...", "-count=1", "-coverprofile=/out/coverage.out"]
+
+# ---- Etapa 3: runtime (imagen mínima, sin el compilador) ----
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
 WORKDIR /app

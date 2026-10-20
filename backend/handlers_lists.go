@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func registerListRoutes(mux *http.ServeMux, s *Store) {
+func registerListRoutes(mux *http.ServeMux, s DataStore) {
 	// GET /api/lists -> listas del usuario autenticado
 	mux.HandleFunc("GET /api/lists", func(w http.ResponseWriter, r *http.Request) {
 		userID, err := userIDFromRequest(r)

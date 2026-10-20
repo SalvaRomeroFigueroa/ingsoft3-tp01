@@ -48,3 +48,15 @@ func TestCanDeleteList(t *testing.T) {
 		t.Errorf("esperaba ErrListHasPendingTasks, dio: %v", err)
 	}
 }
+
+func TestValidateTransition_MismoEstado_EsNoOp(t *testing.T) {
+	if err := ValidateTransition("pendiente", "pendiente"); err != nil {
+		t.Errorf("mismo estado debería aceptarse, dio: %v", err)
+	}
+}
+
+func TestValidateTransition_EstadoActualDesconocido(t *testing.T) {
+	if err := ValidateTransition("inventado", "pendiente"); err != ErrInvalidTransition {
+		t.Errorf("esperaba ErrInvalidTransition, dio: %v", err)
+	}
+}

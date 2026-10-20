@@ -5,6 +5,7 @@ obj/
 dist/
 build/
 backend/todo-backend
+coverage-out/
 
 # secretos: NUNCA se versionan
 .env
@@ -15,3 +16,9 @@ backend/todo-backend
 Thumbs.db
 .vscode/
 .idea/
+coverage-out/
+coverage_filtered.out
+coverage.out
+coverage/
+frontend-coverage/
+node_modules/

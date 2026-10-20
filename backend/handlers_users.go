@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func registerUserRoutes(mux *http.ServeMux, s *Store) {
+func registerUserRoutes(mux *http.ServeMux, s DataStore) {
 	// POST /api/users/login
 	// "Login" simplificado: si el username no existe se crea. No hay
 	// contraseña porque no es el foco de este TP (foco: contenedores).
