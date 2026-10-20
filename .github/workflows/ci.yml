@@ -21,6 +21,44 @@ jobs:
       - name: Preparar el constructor que sabe cachear
         uses: docker/setup-buildx-action@v4
 
+      - name: Construir la etapa de tests
+        uses: docker/build-push-action@v7
+        with:
+          context: ./backend
+          target: test
+          load: true
+          push: false
+          tags: backend-test:ci
+          cache-from: type=gha,scope=backend-test
+          cache-to: type=gha,mode=max,scope=backend-test
+
+      - name: Correr los tests con coverage
+        run: |
+          mkdir -p coverage-backend
+          docker run --rm -v "${{ github.workspace }}/coverage-backend:/out" backend-test:ci
+
+      - name: Resumen y umbral de coverage del backend
+        if: ${{ !cancelled() }}
+        env:
+          UMBRAL: "75"
+        run: |
+          test -f coverage-backend/coverage.out || { echo "::error::No hay coverage.out (¿fallaron los tests?)"; exit 1; }
+          cd backend
+          grep -v -E "/(main|store)\.go:" ../coverage-backend/coverage.out > ../coverage-backend/coverage_filtered.out
+          go tool cover -html=../coverage-backend/coverage_filtered.out -o ../coverage-backend/coverage.html
+          TOTAL=$(go tool cover -func=../coverage-backend/coverage_filtered.out | tail -1 | awk '{print $3}' | tr -d '%')
+          echo "### Coverage del backend" >> $GITHUB_STEP_SUMMARY
+          echo "Statements (sin main.go ni store.go): **${TOTAL}%** — umbral: ${UMBRAL}%" >> $GITHUB_STEP_SUMMARY
+          echo "Cobertura de statements: ${TOTAL}% (umbral ${UMBRAL}%)"
+          awk -v t="$TOTAL" -v u="$UMBRAL" 'BEGIN { exit !(t < u) }' && { echo "::error::Coverage ${TOTAL}% por debajo del umbral ${UMBRAL}%"; exit 1; } || true
+
+      - name: Publicar coverage del backend
+        uses: actions/upload-artifact@v6
+        if: ${{ !cancelled() }}
+        with:
+          name: coverage-backend
+          path: coverage-backend
+
       - name: Construir la imagen del backend
         uses: docker/build-push-action@v7
         with:
@@ -43,6 +81,43 @@ jobs:
 
       - name: Preparar el constructor que sabe cachear
         uses: docker/setup-buildx-action@v4
+
+      - name: Construir la etapa de tests del frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./frontend
+          target: test
+          load: true
+          push: false
+          tags: frontend-test:ci
+          cache-from: type=gha,scope=frontend-test
+          cache-to: type=gha,mode=max,scope=frontend-test
+
+      - name: Correr los tests del frontend con coverage
+        run: |
+          docker run --rm -e COVERAGE_DIR=/salida/reporte \
+            -v "${{ github.workspace }}/frontend-coverage:/salida" frontend-test:ci
+
+      - name: Resumen del coverage del frontend
+        if: ${{ !cancelled() }}
+        run: |
+          F=frontend-coverage/reporte/coverage-summary.json
+          test -f "$F"
+          node -e "
+            const t = require('./$F').total;
+            if (!t.lines.total) { console.error('midió 0 archivos: revisá el include'); process.exit(1); }
+            const f = (m) => \`| \${m} | \${t[m].pct}% |\`;
+            console.log('### Coverage del frontend');
+            console.log('| métrica | % |'); console.log('|---|---|');
+            console.log(f('lines')); console.log(f('branches')); console.log(f('functions'));
+          " >> $GITHUB_STEP_SUMMARY
+
+      - name: Publicar el coverage del frontend
+        uses: actions/upload-artifact@v6
+        if: ${{ !cancelled() }}
+        with:
+          name: coverage-frontend
+          path: frontend-coverage
 
       - name: Construir la imagen del frontend
         uses: docker/build-push-action@v7

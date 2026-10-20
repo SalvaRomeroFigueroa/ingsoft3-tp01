@@ -1,3 +1,6 @@
+import { crearClienteApi } from "./lib/api.js";
+import { validarTitulo, accionesPara, formatearVencimiento, escaparHtml } from "./lib/tareas.js";
+
 // ---------------------------------------------------------------------------
 // Frontend vanilla (sin frameworks) para la To-Do List.
 // Toda la comunicación con el backend pasa por api(), que arma la URL con
@@ -13,26 +16,11 @@ let lists = [];
 
 // --- Helper de fetch ---------------------------------------------------
 
-async function api(path, options = {}) {
-  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-  if (currentUser) {
-    headers["X-User-Id"] = String(currentUser.id);
-  }
-
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  let data = null;
-  try {
-    data = await res.json();
-  } catch (_) {
-    // respuestas sin body (204) no tienen JSON
-  }
-
-  if (!res.ok) {
-    const message = (data && data.error) || `Error ${res.status}`;
-    throw new Error(message);
-  }
-  return data;
-}
+const api = crearClienteApi({
+  fetchFn: (url, opciones) => fetch(url, opciones),
+  baseUrl: API_BASE,
+  getUserId: () => (currentUser ? currentUser.id : null),
+});
 
 // --- Elementos del DOM ---------------------------------------------------
 
@@ -138,7 +126,7 @@ function renderLists() {
     const li = document.createElement("li");
     li.className = list.id === currentListId ? "active" : "";
     li.innerHTML = `
-      <span>${escapeHtml(list.name)}</span>
+      <span>${escaparHtml(list.name)}</span>
       ${list.pending_count > 0 ? `<span class="badge">${list.pending_count}</span>` : ""}
     `;
     li.addEventListener("click", () => selectList(list.id));
@@ -211,12 +199,11 @@ function renderTasks(tasks) {
     const li = document.createElement("li");
     li.className = `task-item ${task.status}`;
 
-    const dueLabel = task.due_date
-      ? `<span class="task-due">Vence: ${task.due_date.substring(0, 10)}</span>`
-      : "";
+    const venc = formatearVencimiento(task.due_date);
+    const dueLabel = venc ? `<span class="task-due">Vence: ${venc}</span>` : "";
 
     li.innerHTML = `
-      <span class="task-title">${escapeHtml(task.title)}</span>
+      <span class="task-title">${escaparHtml(task.title)}</span>
       ${dueLabel}
       <span class="task-status ${task.status}">${task.status}</span>
       <span class="task-actions"></span>
@@ -230,24 +217,13 @@ function renderTasks(tasks) {
 }
 
 function addTaskActions(container, task) {
-  if (task.status === "pendiente") {
-    container.appendChild(
-      makeButton("Completar", "icon-btn", () => updateTaskStatus(task.id, "completada"))
-    );
-  }
-  if (task.status === "completada") {
-    container.appendChild(
-      makeButton("Reabrir", "icon-btn", () => updateTaskStatus(task.id, "pendiente"))
-    );
-  }
-  if (task.status !== "archivada") {
-    container.appendChild(
-      makeButton("Archivar", "icon-btn", () => updateTaskStatus(task.id, "archivada"))
-    );
-  }
-  container.appendChild(
-    makeButton("Eliminar", "danger-btn", () => deleteTask(task.id))
-  );
+  const botones = {
+    completar: () => makeButton("Completar", "icon-btn", () => updateTaskStatus(task.id, "completada")),
+    reabrir: () => makeButton("Reabrir", "icon-btn", () => updateTaskStatus(task.id, "pendiente")),
+    archivar: () => makeButton("Archivar", "icon-btn", () => updateTaskStatus(task.id, "archivada")),
+    eliminar: () => makeButton("Eliminar", "danger-btn", () => deleteTask(task.id)),
+  };
+  accionesPara(task.status).forEach((nombre) => container.appendChild(botones[nombre]()));
 }
 
 function makeButton(label, className, onClick) {
@@ -262,7 +238,11 @@ newTaskForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   hideError(taskError);
   const title = newTaskTitle.value.trim();
-  if (!title) return;
+  const chequeo = validarTitulo(title);
+  if (!chequeo.ok) {
+    showError(taskError, chequeo.error);
+    return;
+  }
 
   try {
     await api(`/api/lists/${currentListId}/tasks`, {
@@ -307,12 +287,6 @@ async function deleteTask(taskId) {
 }
 
 // --- Utilidades ---------------------------------------------------------
-
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
-}
 
 // --- Arranque ---------------------------------------------------------------
 

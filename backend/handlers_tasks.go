@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func registerTaskRoutes(mux *http.ServeMux, s *Store) {
+func registerTaskRoutes(mux *http.ServeMux, s DataStore) {
 	// GET /api/lists/{listId}/tasks -> tareas de una lista
 	mux.HandleFunc("GET /api/lists/{listId}/tasks", func(w http.ResponseWriter, r *http.Request) {
 		userID, err := userIDFromRequest(r)

@@ -1,2 +1,5 @@
 todo-backend
 *.exe
+coverage
+coverage.out
+coverage_filtered.out
