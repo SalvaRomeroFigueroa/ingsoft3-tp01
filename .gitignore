@@ -22,3 +22,5 @@ coverage.out
 coverage/
 frontend-coverage/
 node_modules/
+
+coverage.html
