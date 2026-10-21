@@ -162,3 +162,101 @@ de hornear la imagen final (comprobé que la etapa frena de verdad: rompí el
 ghcr.io como `ghcr.io/salvaromerofigueroa/todo-backend:v0.1.0` y
 `todo-frontend:v0.1.0`, públicas, y probadas bajándolas sin estar logueado
 con `docker-compose.registry.yml`.
+
+## TP5 — Testing y calidad de código
+
+### 1. Qué lógica elegí testear y por qué esa
+
+Elegí testear donde un bug le hace daño real a un usuario:
+
+- **Autorización por dueño** (handlers del backend): si falla, un usuario ve, modifica o borra las listas de otro. Es el bug más caro de la app.
+- **Reglas de negocio de `rules.go`**: validación del título y de la fecha, transiciones de estado (`archivada` es terminal) y la restricción de no borrar una lista con tareas pendientes. Un bug acá deja datos inválidos o pierde tareas.
+- **Frontend (`lib/tareas.js` y `lib/api.js`)**: qué acciones ofrece la UI según el estado de la tarea (que no ofrezca una transición que el backend rechaza) y el manejo de errores del cliente de la API (que el usuario vea por qué falló un pedido).
+
+No testeé el SQL de `store.go` ni el DOM de `app.js`: necesitan tests de otro tipo (integración con Postgres real, o de interfaz), que quedan fuera de este TP.
+
+### 2. Herramientas usadas por fila (mi stack es Go + vitest, no .NET)
+
+| Pieza | Backend (Go) | Frontend (vitest) |
+|---|---|---|
+| Test parametrizado | Tests por tabla con `t.Run` (`TestDeleteList_Autorizacion`, `TestCreateTask_Validaciones`, `TestUpdateTaskStatus_Transiciones`) | `it.each` (`validarTitulo`, `accionesPara`) |
+| Caso de error | `TestPostLists_NombreVacio_Rechazado`, `TestPostLists_ErrorDelStore_Devuelve500` | Rechazo con el mensaje del servidor y con mensaje genérico en `api.test.js` |
+| Doble / mock | `FakeStore` hecho a mano (sin librería), con contador de llamadas | `vi.fn()` en lugar de `fetch` |
+| Medidor de cobertura | `go test -coverprofile` + `go tool cover` | vitest con proveedor v8 |
+| Umbral que frena | Script de bash en el pipeline (Go no trae una bandera para esto) | `thresholds` en `vitest.config.js` |
+| Qué entra en la cuenta | `grep -v` sobre el perfil de cobertura | `coverage.include: ["lib/**"]` |
+
+Los tests corren dentro de la etapa `test` de cada Dockerfile (`FROM build AS test`), no con herramientas nativas en el runner. Así se prueba el mismo código y las mismas dependencias que se construyen para producción, sin una segunda receta de build.
+
+### 3. Refactor para poder mockear
+
+**Backend.** Antes, los handlers recibían `*Store`, el struct concreto atado a `*sql.DB`: no había forma de reemplazar la base en un test, y cada test hubiera necesitado Postgres levantado. Extraje la interfaz `DataStore` (`datastore.go`) con los métodos que usan los handlers y cambié la firma de los tres `register...Routes` de `*Store` a `DataStore`. `Store` la cumple sin cambios (las interfaces de Go se satisfacen estructuralmente) y `main.go` no se tocó. Los tests inyectan `FakeStore`, que guarda todo en mapas en memoria y cuenta las llamadas a `CreateList`: `TestPostLists_CreaListaConDoble` verifica la respuesta HTTP y que `CreateList` se llamó exactamente una vez (verificación de interacción, no solo de resultado).
+
+**Frontend.** `app.js` llamaba al `fetch` global y leía el `currentUser` global, todo mezclado con el DOM. Extraje `crearClienteApi({ fetchFn, baseUrl, getUserId })` a `lib/api.js`: recibe `fetch` desde afuera, así el test le pasa un `vi.fn()` y verifica a qué URL llamó, cuántas veces y con qué header `X-User-Id`. La lógica pura salió a `lib/tareas.js`.
+
+Dos consecuencias: `index.html` carga `app.js` como módulo ES, así que ya no se puede abrir con doble clic (`file://`); sin Docker hay que servir la carpeta (`python -m http.server`). Y los tests están en `frontend/test/`, no junto al código, para que el `COPY lib` del Dockerfile no lleve tests a la imagen de producción.
+
+### 4. Umbral de cobertura
+
+**Backend: 75 %, sobre sentencias** (es la única métrica que mide Go). Cuando lo fijé medí 82,5 % en mi máquina y 81,9 % en la etapa de tests del contenedor, ambos sin `main.go` ni `store.go`. Elegí 75 porque queda unos 7 puntos por debajo de lo que medía: arranca en verde y no se rompe por ruido (el contenedor mide algo menos que mi máquina), pero código nuevo sin tests lo hace caer. Si lo subiera diez puntos (85) quedaría por encima de lo que mido, y el pipeline fallaría desde el primer commit sin que haya ninguna regresión real. Con la suite completa, el pipeline mide hoy **84,3 %**.
+
+**Frontend: 90 %, en líneas y en ramas.** Medí 100 % en todo `lib/`. Puse las dos métricas porque según la versión de vitest una función nueva sin tests puede no caer en ramas; en mi versión (5.0.5) cayó en las dos. Margen de 10 puntos, y como `lib/` es chica, una función nueva sin tests ya hace caer el número.
+
+**Cobertura de rama hoy:** frontend 100 %. En el backend no tengo el dato: Go mide sentencias, no ramas.
+
+El resumen de cobertura de los dos lados y los reportes descargables (artefactos `coverage-backend` y `coverage-frontend`) están en esta corrida: https://github.com/SalvaRomeroFigueroa/ingsoft3-tp01/actions/runs/39545995035
+
+### 5. Qué dejé afuera de la cuenta de cobertura
+
+- **Backend:** `main.go` (el arranque: lee variables de entorno, abre la conexión y registra rutas, sin reglas de negocio) y `store.go` (queries SQL contra Postgres: los tests unitarios lo reemplazan con el `FakeStore`, y cubrirlo pide tests de integración con una base real, que no hice). `models.go` no aparece en el perfil: son structs sin sentencias ejecutables. Es el mismo filtro para el umbral y para el reporte, para no mostrar un número y exigir otro. Lo escribí como lista de lo que se saca, no de lo que se deja, así un `.go` nuevo entra a la cuenta solo.
+- **Frontend:** entra solo `lib/**` (`coverage.include`). `app.js` es pegamento de DOM y queda afuera. Limitación: acá la lista es de lo que se incluye, así que código nuevo fuera de `lib/` no se mide. Lo compenso poniendo la lógica nueva en `lib/` (el PR abierto lo mostró: un archivo nuevo en `lib/` entró solo a la cuenta).
+
+### 6. Por qué coverage alto no garantiza calidad
+
+Un test que llame a `accionesPara("pendiente")` sin ningún `expect` ejecuta la función y suma el 100 % de sus líneas, pero no verifica nada: si alguien cambiara el `case "pendiente"` para ofrecer "reabrir", ese test seguiría en verde. En el backend, `ValidateTransition` figuraba como cubierta en su línea `if !ok || !allowed[next]` aunque el lado `!ok` nunca se evaluaba como verdadero: las sentencias miden que la línea corrió, no que cada condición haya tomado cada valor. Y mi 100 % del frontend es solo de `lib/`: no dice nada sobre si la UI (`app.js`) funciona.
+
+### 7. El ejercicio del camino sin cubrir
+
+- **Qué línea es:** en `rules.go`, `ValidateTransition`, el `return nil` dentro de `if current == next` (pedir el estado que la tarea ya tiene). Ningún test lo recorría; el reporte marcaba la función en 83,3 %.
+- **Qué entrada la recorre:** `ValidateTransition("pendiente", "pendiente")`.
+- **Qué decidí:** lo agregué (`TestValidateTransition_MismoEstado_EsNoOp`), porque define un comportamiento real: pedir el estado actual es un no-op aceptado, no un error. El total filtrado subió de 82,1 % a 82,5 %. Sumé también `TestValidateTransition_EstadoActualDesconocido` para el lado `!ok` de la condición, que las sentencias daban por cubierto sin estarlo.
+
+### 8. Pull Requests bloqueados por cobertura
+
+**PR mergeado (backend): la secuencia completa.** Agregué en `rules.go` `PrioridadDeTarea`, `ResumenDeLista` y `Etiqueta`: unas 35 sentencias nuevas sin tests. Compilaba y los tests existentes pasaban, pero el check `build-backend` se puso en **rojo** en el paso "Resumen y umbral de coverage del backend": `Cobertura de statements: 70.7% (umbral 75%)`. El paso de tests estaba en verde: frenó por calidad, no por compilación. Métrica: sentencias.
+
+Para arreglarlo escribí `rules_prioridad_test.go`, un caso por cada salida que el código declara: 10 casos de tabla para `PrioridadDeTarea` (con los bordes de 7/8 y 30/31 días, y que la hora del día no cambia el resultado), 3 tests de `ResumenDeLista` (cuenta por estado, sin tareas activas, todo completado) y 4 casos de `Etiqueta`. El pipeline pasó de 70,7 % a 84,3 %, el check quedó en verde y se mergeó. Ese código quedó en `main` como código de la demostración; ningún endpoint lo usa.
+
+- Corrida roja por umbral: https://github.com/SalvaRomeroFigueroa/ingsoft3-tp01/actions/runs/39517802896
+- Corrida verde tras los tests: https://github.com/SalvaRomeroFigueroa/ingsoft3-tp01/actions/runs/39545995035
+- Pull Request mergeado (la conversación muestra la secuencia): https://github.com/SalvaRomeroFigueroa/ingsoft3-tp01/pull/21
+
+**PR abierto (frontend): el freno vigente.** Agregué `frontend/lib/prioridad.js` sin tests y dejé el PR abierto y sin arreglar. `build-frontend` está en **rojo** por cobertura, en las dos métricas:
+
+- `ERROR: Coverage for lines (54.9%) does not meet global threshold (90%)`
+- `ERROR: Coverage for branches (59.09%) does not meet global threshold (90%)`
+
+Frenó por líneas y por ramas, con vitest 5.0.5. Los tests pasan; falla solo el umbral.
+
+- Pull Request abierto: https://github.com/SalvaRomeroFigueroa/ingsoft3-tp01/pull/22
+- Corrida roja: https://github.com/SalvaRomeroFigueroa/ingsoft3-tp01/actions/runs/39549651844
+
+### 9. Problemas encontrados y cómo los resolví
+
+- **PowerShell vs. Git Bash.** `tail` y `grep` no existen en PowerShell, y `go tool cover -func=coverage.out` fallaba con `too many arguments` porque PowerShell parte el argumento en el punto (y dejó un archivo `coverage` suelto). Lo resolví entrecomillando el argumento y usando Git Bash para los comandos con pipes.
+- **`go test` mostraba solo 7 tests.** Solo existían 3 de los 8 archivos de test; los otros no se habían creado. Lo detecté con `ls *_test.go` y repetí la medición con `-count=1` para evitar el caché.
+- **Un 17 % de cobertura al arrancar.** El total incluía `store.go` y `main.go`, ambos en 0 %. Lo resolví con el filtro de lo que no se testea de forma unitaria (sección 5).
+- **`git add -A` iba a subir basura.** Entraban reportes generados (`frontend/coverage`, `frontend-coverage`) y un `package.json` que había creado por error dentro de `backend/`. Lo vi en el `git status` antes de commitear: `git reset`, borré lo que sobraba y agregué los patrones al `.gitignore`.
+- **82,5 % en mi máquina, 81,9 % en el contenedor.** Decidí que el número de referencia es el del contenedor y el pipeline, porque es el que se mide en cada PR.
+
+### 10. Uso de IA
+
+Usé Claude para diseñar el refactor a `DataStore`, escribir el `FakeStore`, los tests del backend y del frontend, la etapa `test` de los Dockerfiles y los pasos nuevos de `ci.yml`. Lo verifiqué corriendo ambas etapas de test en mi máquina con `docker build --target test` y `docker run`, midiendo la cobertura localmente y viendo las corridas en Actions, incluida la corrida que falló a propósito. Puedo explicar qué verifica cada assert. Lo que **no** está cubierto: el SQL de `store.go`, `main.go` y la UI de `app.js`, que quedan afuera de la cuenta a propósito; y, dentro de la cuenta: Lo que **no** está cubierto, según el reporte de cobertura: afuera de la cuenta, el SQL de `store.go`, `main.go` y la UI de `app.js`; y dentro de la cuenta, 20 bloques de `handlers_lists.go`, `handlers_tasks.go` y `handlers_users.go` (39 sentencias). De esos, 19 son ramas de error defensivas y uno es un camino feliz:
+
+- **El camino feliz de `GET /api/lists`** (el `writeJSON` con 200, `handlers_lists.go:23`): ningún test lo recorre. Es el hueco que más me preocupa, porque es la ruta que más usa el frontend.
+- **401 por falta de usuario** en `POST /api/lists`, `DELETE /api/lists/{id}`, el `GET` de tareas y el `DELETE` de tareas. El 401 sí está cubierto en `GET /api/lists`, en el alta de tareas y en el cambio de estado.
+- **400 por id inválido** en las cuatro rutas de tareas, y **400 por cuerpo JSON inválido** en `POST /api/lists`, en el alta de tareas y en el cambio de estado.
+- **404 por lista inexistente** en el `GET` de tareas.
+- **500 cuando falla la base**, en siete lugares: `PendingTaskCount` y `DeleteList` (borrado de listas), `TasksByList`, `CreateTask`, `UpdateTaskStatus`, `DeleteTask` y `FindOrCreateUser` (login). Solo simulé la caída de la base en `GET` y `POST` de listas, con un store que falla a propósito.
+
+Dejé sin cubrir los 500 porque cada uno pide un doble que falle en un método distinto, y su valor es bajo frente al riesgo de las reglas de negocio y la autorización, que sí están cubiertas. El camino feliz de `GET /api/lists` es la excepción: ahí el hueco es real, y lo declaro en vez de esconderlo.
